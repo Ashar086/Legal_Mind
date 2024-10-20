@@ -4,3 +4,4 @@ requests==2.32.3
 openai==0.28
 PyMuPDF
 python-docx
+llama 3.2 11B
