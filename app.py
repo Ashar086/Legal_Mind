@@ -120,33 +120,44 @@ else:
 
 import streamlit as st
 import json
-import openai
 import fitz  # PyMuPDF
 import docx  # python-docx
+import os
+import re
+import openai
 
-# Setup for the 3rd party OpenAI API
-base_url = "https://api.aimlapi.com/v1"
 api_key = '3fbfe25109b647efb7bf2f45bd667163'
-
-# Set the API key for OpenAI
 openai.api_key = api_key
-openai.api_base = base_url
+openai.api_base = "https://api.aimlapi.com"
 
-def call_ai_api(prompt, max_tokens=1000, temperature=0.7):
+def call_ai_api(prompt, max_tokens=1000):
     """
-    Function to call the 3rd party OpenAI API.
+    Function to call the 3rd party Llama API.
     """
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",  # or the appropriate model for your API
-            messages=[{"role": "user", "content": prompt}],
+            model="meta-llama/Llama-3.2-3B-Instruct-Turbo",  # Using Llama-3.2 model
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt  # Directly use the prompt string
+                }
+            ],
             max_tokens=max_tokens,
-            temperature=temperature
         )
-        return response.choices[0].message.content
+        return response.choices[0].message["content"]
     except Exception as e:
-        st.error(f"An error occurred while calling the API: {str(e)}")
+        print(f"An error occurred while calling the API: {str(e)}")
         return None
+
+def extract_json(text):
+    """
+    Try to extract JSON data from a text string using a regular expression.
+    """
+    json_match = re.search(r'{.*}', text, re.DOTALL)
+    if json_match:
+        return json_match.group(0)
+    return None
 
 def chunk_text(text, max_chunk_size=3000):
     """
@@ -203,18 +214,27 @@ def analyze_contract(file_content, file_type):
     for chunk in chunks:
         prompt = f"""Analyze the following contract section and provide a detailed breakdown of its clauses, including their titles, content, risk level, and a brief explanation for each. The document content is as follows:
 {chunk}
-Format your response as a JSON object with a 'clauses' key containing an array of clause objects. Each clause object should have 'title', 'content', 'risk_level', and 'explanation' keys.
+Format your response as a JSON object with a 'clauses' key containing an array of clause objects. Each clause object should have 'title', 'content', 'risk_level', and 'explanation' keys. Do not include any extra text, only the JSON output.
 """
         # Call AI API to analyze each chunk
         response = call_ai_api(prompt, max_tokens=2000)
         
         # Parse the JSON response
         if response:
-            try:
-                analysis_result = json.loads(response)
-                analysis_results["clauses"].extend(analysis_result.get("clauses", []))
-            except json.JSONDecodeError:
-                st.error("Failed to parse the API response as JSON.")
+            
+            # Try to extract JSON from the response
+            json_data = extract_json(response)
+            if json_data:
+                try:
+                    analysis_result = json.loads(json_data)
+                    if "clauses" in analysis_result:
+                        analysis_results["clauses"].extend(analysis_result["clauses"])
+                    else:
+                        st.warning("The API response did not include any clauses.")
+                except json.JSONDecodeError:
+                    pass
+            else:
+                st.error("The response did not contain any recognizable JSON.")
     
     return analysis_results
 
@@ -272,3 +292,4 @@ if uploaded_file is not None:
         st.write("No clauses found in the contract analysis. Please try again.")
 else:
     st.write("Please upload a contract to begin the analysis.")
+
